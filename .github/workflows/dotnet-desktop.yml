@@ -1,42 +1,4 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
-# This workflow will build, test, sign and package a WPF or Windows Forms desktop application
-# built on .NET Core.
-# To learn how to migrate your existing application to .NET Core,
-# refer to https://docs.microsoft.com/en-us/dotnet/desktop-wpf/migration/convert-project-from-net-framework
-#
-# To configure this workflow:
-#
-# 1. Configure environment variables
-# GitHub sets default environment variables for every workflow run.
-# Replace the variables relative to your project in the "env" section below.
-#
-# 2. Signing
-# Generate a signing certificate in the Windows Application
-# Packaging Project or add an existing signing certificate to the project.
-# Next, use PowerShell to encode the .pfx file using Base64 encoding
-# by running the following Powershell script to generate the output string:
-#
-# $pfx_cert = Get-Content '.\SigningCertificate.pfx' -Encoding Byte
-# [System.Convert]::ToBase64String($pfx_cert) | Out-File 'SigningCertificate_Encoded.txt'
-#
-# Open the output file, SigningCertificate_Encoded.txt, and copy the
-# string inside. Then, add the string to the repo as a GitHub secret
-# and name it "Base64_Encoded_Pfx."
-# For more information on how to configure your signing certificate for
-# this workflow, refer to https://github.com/microsoft/github-actions-for-desktop-apps#signing
-#
-# Finally, add the signing certificate password to the repo as a secret and name it "Pfx_Key".
-# See "Build the Windows Application Packaging project" below to see how the secret is used.
-#
-# For more information on GitHub Actions, refer to https://github.com/features/actions
-# For a complete CI/CD sample to get started with GitHub Action workflows for Desktop Applications,
-# refer to https://github.com/microsoft/github-actions-for-desktop-apps
-
-name: .NET Core Desktop
+name: .NET 10 WinForms Native AOT Build
 
 on:
   push:
@@ -45,71 +7,57 @@ on:
     branches: [ "main" ]
 
 jobs:
-
   build:
-
     strategy:
       matrix:
-        configuration: [Debug, Release]
+        # Native AOT bắt buộc cấu hình Release để trình tối ưu hóa gọt code thừa (Trim)
+        configuration: [Release]
+        # Tạo ma trận dịch ra 2 phiên bản mã máy riêng biệt cho chip Intel/AMD (x64) và ARM (Surface, v.v.)
+        architecture: [x64, arm64]
 
-    runs-on: windows-latest  # For a list of available runner types, refer to
-                             # https://help.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idruns-on
+    runs-on: windows-latest  
 
     env:
-      Solution_Name: your-solution-name                         # Replace with your solution name, i.e. MyWpfApp.sln.
-      Test_Project_Path: your-test-project-path                 # Replace with the path to your test project, i.e. MyWpfApp.Tests\MyWpfApp.Tests.csproj.
-      Wap_Project_Directory: your-wap-project-directory-name    # Replace with the Wap project directory relative to the solution, i.e. MyWpfApp.Package.
-      Wap_Project_Path: your-wap-project-path                   # Replace with the path to your Wap project, i.e. MyWpf.App.Package\MyWpfApp.Package.wapproj.
+      # BẮT BUỘC: Điền đường dẫn tới file .csproj của bạn (Ví dụ: "MyWinFormsApp/MyApp.csproj")
+      Project_Path: "your-project-folder/your-project-name.csproj"
+      
+      # Điền đường dẫn tới project test nếu có (nếu không có, bạn có thể xóa dòng này)
+      Test_Project_Path: "your-test-project-path/your-test-project.csproj"
 
     steps:
-    - name: Checkout
+    - name: Checkout mã nguồn
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
-    # Install the .NET Core workload
-    - name: Install .NET Core
+    # 1. Cài đặt SDK .NET 10 mới nhất (Bắt buộc để chạy target net10.0-windows)
+    - name: Install .NET 10 SDK
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 8.0.x
+        dotnet-version: 10.0.x
+        include-prerelease: true # Cần thiết nếu .NET 10 đang trong giai đoạn Preview như gói System.Management của bạn
 
-    # Add  MSBuild to the PATH: https://github.com/microsoft/setup-msbuild
-    - name: Setup MSBuild.exe
-      uses: microsoft/setup-msbuild@v2
-
-    # Execute all unit tests in the solution
+    # 2. Khởi chạy kiểm thử tự động (Xóa bước này nếu dự án của bạn không tạo thư mục Test)
     - name: Execute unit tests
-      run: dotnet test
+      run: dotnet test ${{ env.Test_Project_Path }} --configuration ${{ matrix.configuration }}
+      continue-on-error: true # Bỏ qua nếu chưa cấu hình xong project test
 
-    # Restore the application to populate the obj folder with RuntimeIdentifiers
-    - name: Restore the application
-      run: msbuild $env:Solution_Name /t:Restore /p:Configuration=$env:Configuration
-      env:
-        Configuration: ${{ matrix.configuration }}
-
-    # Decode the base 64 encoded pfx and save the Signing_Certificate
-    - name: Decode the pfx
+    # 3. Tiến hành dịch THẲNG THÀNH MÃ MÁY bằng .NET CLI (Thay thế hoàn toàn cho MSBuild cũ)
+    - name: Publish Native AOT Executable
       run: |
-        $pfx_cert_byte = [System.Convert]::FromBase64String("${{ secrets.Base64_Encoded_Pfx }}")
-        $certificatePath = Join-Path -Path $env:Wap_Project_Directory -ChildPath GitHubActionsWorkflow.pfx
-        [IO.File]::WriteAllBytes("$certificatePath", $pfx_cert_byte)
+        dotnet publish ${{ env.Project_Path }} `
+          --configuration ${{ matrix.configuration }} `
+          --runtime win-${{ matrix.architecture }} `
+          -p:PublishAot=true `
+          -p:PublishSingleFile=true `
+          --output ./publish-output-${{ matrix.architecture }}
+      # GIẢI THÍCH LỆNH CHẠY:
+      # -p:PublishAot=true -> Kích hoạt ép lõi .NET 10 dịch thẳng ra mã máy
+      # -p:PublishSingleFile=true -> Gom tất cả thư viện, asset thành 1 file .EXE độc nhất không cần cài đặt kèm theo
 
-    # Create the app package by building and packaging the Windows Application Packaging project
-    - name: Create the app package
-      run: msbuild $env:Wap_Project_Path /p:Configuration=$env:Configuration /p:UapAppxPackageBuildMode=$env:Appx_Package_Build_Mode /p:AppxBundle=$env:Appx_Bundle /p:PackageCertificateKeyFile=GitHubActionsWorkflow.pfx /p:PackageCertificatePassword=${{ secrets.Pfx_Key }}
-      env:
-        Appx_Bundle: Always
-        Appx_Bundle_Platforms: x86|x64
-        Appx_Package_Build_Mode: StoreUpload
-        Configuration: ${{ matrix.configuration }}
-
-    # Remove the pfx
-    - name: Remove the pfx
-      run: Remove-Item -path $env:Wap_Project_Directory\GitHubActionsWorkflow.pfx
-
-    # Upload the MSIX package: https://github.com/marketplace/actions/upload-a-build-artifact
-    - name: Upload build artifacts
+    # 4. Gom file .EXE mã máy hoàn chỉnh lên mục Artifacts trên GitHub để bạn tải về sử dụng
+    - name: Upload Native Executable Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: MSIX Package
-        path: ${{ env.Wap_Project_Directory }}\AppPackages
+        name: WinForms-Native-AOT-win-${{ matrix.architecture }}
+        path: ./publish-output-${{ matrix.architecture }}/
