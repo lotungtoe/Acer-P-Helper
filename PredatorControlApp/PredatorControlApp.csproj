@@ -9,9 +9,26 @@
     <ApplicationIcon>appicon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>1.5.0</Version>
+
+    <!-- ==================================================== -->
+    <!-- BẮT BUỘC: KÍCH HOẠT BIÊN DỊCH TRỰC TIẾP THÀNH MÃ MÁY -->
+    <PublishAot>true</PublishAot>
+    
+    <!-- TỐI ƯU HÓA ĐÓNG GÓI: Ép ra duy nhất 1 file .EXE duy nhất, sạch sẽ -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+
+    <!-- QUẢN LÝ CẢNH BÁO AOT (BẬT ĐỂ PHÁT HIỆN CODE XUNG ĐỘT) -->
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    
+    <!-- Ẩn bớt các cảnh báo không ảnh hưởng cấu trúc Form -->
+    <NoWarn>$(NoWarn);WFO5001;IL2026;IL3050</NoWarn>
+    <!-- ==================================================== -->
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Giữ nguyên gói System.Management tương thích với .NET 10 -->
     <PackageReference Include="System.Management" Version="10.0.0-preview.*" />
   </ItemGroup>
 
